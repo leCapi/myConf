@@ -1,0 +1,25 @@
+{
+    "gitlens.advanced.messages": {
+        "suppressCommitHasNoPreviousCommitWarning": false,
+        "suppressCommitNotFoundWarning": false,
+        "suppressFileNotUnderSourceControlWarning": false,
+        "suppressGitVersionWarning": false,
+        "suppressLineUncommittedWarning": false,
+        "suppressNoRepositoryWarning": false,
+        "suppressResultsExplorerNotice": false,
+        "suppressUpdateNotice": false,
+        "suppressWelcomeNotice": true
+    },
+    "gitlens.keymap": "alternate",
+    "workbench.colorTheme": "Monokai",
+    "editor.tabSize": 2,
+    "editor.fontSize": 13,
+    "zenMode.centerLayout": false,
+    "zenMode.hideStatusBar": false,
+    "zenMode.hideTabs": false,
+    "python.pythonPath": "python3",
+    "window.menuBarVisibility": "toggle",
+    "zenMode.hideActivityBar": false,
+    "workbench.activityBar.visible": false,
+    "editor.renderWhitespace": "boundary"
+}

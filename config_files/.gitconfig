@@ -1,0 +1,8 @@
+[user]
+	email = john.doe@unknown.com
+	name = John DOE
+[push]
+	default = matching
+[core]
+	editor = vim
+  excludesfile = ~/.gitignore
