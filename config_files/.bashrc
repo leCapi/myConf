@@ -113,6 +113,9 @@ if ! shopt -oq posix; then
     fi
 fi
 
+# ssh-agent
+eval $(ssh-agent -s)
+
 parse_git_branch() 
 {
     local BRANCH=$(git branch 2>/dev/null | grep '^*' | colrm 1 2)
