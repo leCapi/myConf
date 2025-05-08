@@ -8,6 +8,8 @@ case $- in
 *) return;;
 esac
 
+export LANG="en_US.UTF-8"
+
 # don't put duplicate lines or lines starting with space in the history.
 # See bash(1) for more options
 HISTCONTROL=ignoreboth
@@ -16,8 +18,8 @@ HISTCONTROL=ignoreboth
 shopt -s histappend
 
 # for setting history length see HISTSIZE and HISTFILESIZE in bash(1)
-HISTSIZE=1000
-HISTFILESIZE=2000
+HISTSIZE=100000
+HISTFILESIZE=200000
 
 # check the window size after each command and, if necessary,
 # update the values of LINES and COLUMNS.
@@ -113,8 +115,6 @@ if ! shopt -oq posix; then
     fi
 fi
 
-# ssh-agent
-eval $(ssh-agent -s)
 
 parse_git_branch() 
 {
@@ -160,9 +160,6 @@ RESET='\e[0m'         # Text Reset
 export PS1="${WHITE_BOLD}\t ${BLUE_BOLD}\u${WHITE_BOLD}@${RED_BOLD}\h ${GREEN_BOLD}\w ${YELLOW}\$(parse_git_branch) ${RED_BOLD}\$(parse_git_changes)\n${WHITE_BOLD}> \[$(tput sgr0)\]"
 #export PS1="${WHITE_BOLD}\t ${BLUE_BOLD}\u${WHITE_BOLD}@${RED_BOLD}\h ${GREEN_BOLD}\w ${YELLOW}\$(parse_git_branch)\n${WHITE_BOLD}> ${WHITE}"
 
-#set git to english
-alias git='LANG=en_GB git'
-
 #-------------------------------------------------------------
 # The 'ls' family (this assumes you use a recent GNU ls).
 #-------------------------------------------------------------
@@ -180,3 +177,46 @@ alias lm='ll |more'        #  Pipe through 'more'
 alias lr='ll -R'           #  Recursive ls.
 alias la='ll -A'           #  Show hidden files.
 alias tree='tree -Csuh'    #  Nice alternative to 'recursive ls' ...
+
+
+# SSH AGENT
+#eval $(ssh-agent -s)
+SSH_ENV="$HOME/.ssh/agent-environment"
+function start_agent {
+    echo "Initialising new SSH agent..."
+    /usr/bin/ssh-agent | sed 's/^echo/#echo/' >"$SSH_ENV"
+    echo succeeded
+    chmod 600 "$SSH_ENV"
+    . "$SSH_ENV" >/dev/null
+    /usr/bin/ssh-add;
+}
+
+# auto tmux
+#if [ -f "$SSH_ENV" ]; then
+#    . "$SSH_ENV" >/dev/null
+#    #ps $SSH_AGENT_PID doesn't work under Cygwin
+#    ps -ef | grep $SSH_AGENT_PID | grep ssh-agent$ >/dev/null || {
+#        start_agent
+#    }
+#else
+#    start_agent
+#fi
+#if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then
+#  #exec tmux
+#  exec tmux new -A -s main_session
+#fi
+
+#echo $1
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+    DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+      SOURCE=$(readlink "$SOURCE")
+        [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+      done
+      DIR_BASHRC_GIT=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+tm(){
+  session=${1:-main}
+  tmux new -A -s "$session"
+}
+
+alias setupEnv1='source $DIR_BASHRC_GIT/../script/launch_tmux.sh ~/git ~/git ~/git python'
