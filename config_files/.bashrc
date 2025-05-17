@@ -191,32 +191,36 @@ function start_agent {
     /usr/bin/ssh-add;
 }
 
-# auto tmux
-#if [ -f "$SSH_ENV" ]; then
-#    . "$SSH_ENV" >/dev/null
-#    #ps $SSH_AGENT_PID doesn't work under Cygwin
-#    ps -ef | grep $SSH_AGENT_PID | grep ssh-agent$ >/dev/null || {
-#        start_agent
-#    }
-#else
-#    start_agent
-#fi
-#if command -v tmux &> /dev/null && [ -n "$PS1" ] && [[ ! "$TERM" =~ screen ]] && [[ ! "$TERM" =~ tmux ]] && [ -z "$TMUX" ]; then
-#  #exec tmux
-#  exec tmux new -A -s main_session
-#fi
+if [ -f "$SSH_ENV" ]; then
+    . "$SSH_ENV" >/dev/null
+    #ps $SSH_AGENT_PID doesn't work under Cygwin
+    ps -ef | grep $SSH_AGENT_PID | grep ssh-agent$ >/dev/null || {
+        start_agent
+    }
+else
+    start_agent
+fi
 
-#echo $1
+# TMUX
 SOURCE=${BASH_SOURCE[0]}
 while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
     DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
-      SOURCE=$(readlink "$SOURCE")
-        [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
-      done
-      DIR_BASHRC_GIT=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+    SOURCE=$(readlink "$SOURCE")
+    # if $SOURCE was a relative symlink,
+    # we need to resolve it relative to the path where the symlink file was located
+    [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE
+done
+DIR_BASHRC_GIT=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+
 tm(){
   session=${1:-main}
   tmux new -A -s "$session"
+}
+
+tms(){
+  cwd=$(pwd)
+  tmux split $@
+  cd $cwd
 }
 
 alias setupEnv1='source $DIR_BASHRC_GIT/../script/launch_tmux.sh ~/git ~/git ~/git python'

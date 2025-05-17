@@ -4,6 +4,7 @@
 # like this :
 # alias setupEnv1='source PATH_SCRIPT/launch_tmux.sh ~/FOLDER1 ~/FOLDER2 ~/FOLDER3'
 
+tmux rename-window all
 cd "$1";clear
 tmux split-window -h -p 60 -c "$2"
 tmux split-window -v -c "$3"
