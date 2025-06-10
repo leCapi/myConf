@@ -1,6 +1,11 @@
 #! /usr/bin/env python3
 # pip install drain3 tyro
 # pip install drain3~="0.9.11" tyro~="0.9.24"
+"""
+This script computes clusters of similar log lines from the provided log files.
+It uses the drain3 library to extract templates from log lines.
+It can filter log lines based on a regex pattern and display the clusters
+"""
 import dataclasses
 import logging
 import pathlib
@@ -12,9 +17,9 @@ from math import ceil, log10
 from typing import Annotated
 
 import tyro
-from drain3 import TemplateMiner
-from drain3.masking import MaskingInstruction
-from drain3.template_miner_config import TemplateMinerConfig
+from drain3 import TemplateMiner # type: ignore
+from drain3.masking import MaskingInstruction # type: ignore
+from drain3.template_miner_config import TemplateMinerConfig # type: ignore
 
 logging.basicConfig(
     format="%(asctime)s | %(processName)s - %(threadName)s | %(levelname)s : %(message)s",
@@ -26,19 +31,30 @@ logging.getLogger("drain3").setLevel(logging.WARNING)
 @dataclasses.dataclass
 class Arguments:
     """
-    Arguments for the log extractor script.
+    The drain algorithm will be used to extract
+    clusters of similar log lines from the provided log files.
+
+    Arguments for the log extractor script :
     """
 
     # logs files paths to process
     logfile_paths: tyro.conf.Positional[tuple[pathlib.Path, ...]]
-    # if set, filter input log lines which does not match the regex (re python module syntax). Example: '.*(\| Warning |\| Error ).*'
+    # If set, filter input log lines which does not match the regex (re python module syntax).
+    # Example: '.*(\| Warning |\| Error ).*'
     filter: Annotated[str, tyro.conf.arg(aliases=["-f"])] = ""
-    # if set, does not display the count of each cluster. The clusters will be ordered lexicographically.
+    # If set, does not display the count of each cluster.
+    # The clusters will be ordered lexicographically.
     lex_order: Annotated[
         tyro.conf.FlagCreatePairsOff[bool], tyro.conf.arg(aliases=["-l"])
     ] = False
-    # similarity threshold for the template miner, a higher value will lead to create more clusters.
+    # Similarity threshold for the template miner to group lines together.
+    # A higher value will lead to create more clusters.
     similarity_threshold: Annotated[float, tyro.conf.arg(aliases=["-s"])] = 0.4
+    # depth of the tree to build the templates miner,
+    # a higher value will lead to create more clusters.
+    # The higher the value, the more first tokens of the log lines
+    # will be considered to build the clusters.
+    tree_depth: Annotated[int, tyro.conf.arg(aliases=["-d"])] = 4
 
 
 def create_drain3_cfg(args: Arguments) -> TemplateMinerConfig:
@@ -59,6 +75,7 @@ def create_drain3_cfg(args: Arguments) -> TemplateMinerConfig:
     )
     drain3_cfg.masking_instructions += [mask_ip, mask_time]
     drain3_cfg.drain_sim_th = args.similarity_threshold
+    drain3_cfg.drain_depth = args.tree_depth
 
     return drain3_cfg
 
@@ -125,11 +142,11 @@ def handle_cluster_count_order(template_miner: TemplateMiner) -> int:
     ]
     if not ordered_clusters:
         return 0
-    margin = ceil(log10(ordered_clusters[0].size))
     ordered_clusters.sort(key=lambda x: x[0], reverse=True)
+    margin = ceil(log10(ordered_clusters[0].size))
     total_nb_lines_clusters = 0
     for cluster in ordered_clusters:
-        print(f"{str(cluster.size).ljust(margin)} - {cluster.pattern}")
+        print(f"{str(cluster.size).rjust(margin)} - {cluster.pattern}")
         total_nb_lines_clusters += cluster.size
     return total_nb_lines_clusters
 
@@ -163,7 +180,8 @@ def main(args: Arguments) -> int:
         # sanity check
         if total_nb_lines_clusters != total_nb_lines:
             logging.warning(
-                "The number of lines in the clusters (%d) does not match the total number of lines processed (%d).",
+                "The number of lines in the clusters (%d) does "
+                "not match the total number of lines processed (%d).",
                 total_nb_lines_clusters,
                 total_nb_lines,
             )
