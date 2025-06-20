@@ -17,9 +17,9 @@ from math import ceil, log10
 from typing import Annotated
 
 import tyro
-from drain3 import TemplateMiner # type: ignore
-from drain3.masking import MaskingInstruction # type: ignore
-from drain3.template_miner_config import TemplateMinerConfig # type: ignore
+from drain3 import TemplateMiner  # type: ignore
+from drain3.masking import MaskingInstruction  # type: ignore
+from drain3.template_miner_config import TemplateMinerConfig  # type: ignore
 
 logging.basicConfig(
     format="%(asctime)s | %(processName)s - %(threadName)s | %(levelname)s : %(message)s",
@@ -31,8 +31,8 @@ logging.getLogger("drain3").setLevel(logging.WARNING)
 @dataclasses.dataclass
 class Arguments:
     """
-    The drain algorithm will be used to extract
-    clusters of similar log lines from the provided log files.
+    Use drain algorithm to extract clusters of similar log lines
+    from the provided log files.
 
     Arguments for the log extractor script :
     """
@@ -52,9 +52,24 @@ class Arguments:
     similarity_threshold: Annotated[float, tyro.conf.arg(aliases=["-s"])] = 0.4
     # depth of the tree to build the templates miner,
     # a higher value will lead to create more clusters.
-    # The higher the value, the more first tokens of the log lines
-    # will be considered to build the clusters.
+    # The higher the value, the more tokens of the log lines
+    # will be considered to build the clusters. Increase this value
+    # to make clustering rely on distant tokens.
     tree_depth: Annotated[int, tyro.conf.arg(aliases=["-d"])] = 4
+
+    def __post_init__(self) -> None:
+        if self.logfile_paths is None or len(self.logfile_paths) == 0:
+            error_message = (
+                "No log files provided. Please specify at least one log file."
+            )
+            logging.error(error_message)
+            sys.exit(-2)
+        if self.tree_depth < 3:
+            error_message = (
+                f"The tree depth is set to {self.tree_depth}. Minimum value is 3."
+            )
+            logging.error(error_message)
+            sys.exit(-1)
 
 
 def create_drain3_cfg(args: Arguments) -> TemplateMinerConfig:
@@ -70,9 +85,7 @@ def create_drain3_cfg(args: Arguments) -> TemplateMinerConfig:
         r"((?<=[^A-Za-z0-9])|^)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})((?=[^A-Za-z0-9])|$)",
         "IP",
     )
-    mask_time = MaskingInstruction(
-        r"((?<=[^A-Za-z0-9])|^)(\d{2}:\d{2}:\d{2}\.\d+)((?=[^A-Za-z0-9])|$)", "TIME"
-    )
+    mask_time = MaskingInstruction(r"(\d{2}:\d{2}:\d{2}(.\d+|))", "TIME")
     drain3_cfg.masking_instructions += [mask_ip, mask_time]
     drain3_cfg.drain_sim_th = args.similarity_threshold
     drain3_cfg.drain_depth = args.tree_depth
