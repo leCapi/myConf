@@ -124,7 +124,7 @@ def add_log_lines_to_miner(
     """
     total_nb_lines = 0
     for logfile_path in logfile_paths:
-        with open(logfile_path, "r", encoding="utf-8") as f:
+        with open(logfile_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             for line in f:
                 line = line.strip()
                 if not line:
