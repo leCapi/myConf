@@ -1,10 +1,10 @@
 #! /usr/bin/env python3
 # pip install drain3 tyro
-# pip install drain3~="0.9.11" tyro~="0.9.24"
+# pip install drain3~="0.9" tyro~="0.9" rich~="14.2"
 """
 This script computes clusters of similar log lines from the provided log files.
 It uses the drain3 library to extract templates from log lines.
-It can filter log lines based on a regex pattern and display the clusters
+It can filter log lines based on a regex pattern and display the clusters.
 """
 import dataclasses
 import logging
@@ -17,13 +17,17 @@ from math import ceil, log10
 from typing import Annotated
 
 import tyro
+from rich import print  # pylint: disable=redefined-builtin
+from rich.logging import RichHandler
 from drain3 import TemplateMiner  # type: ignore
 from drain3.masking import MaskingInstruction  # type: ignore
 from drain3.template_miner_config import TemplateMinerConfig  # type: ignore
 
 logging.basicConfig(
-    format="%(asctime)s | %(processName)s - %(threadName)s | %(levelname)s : %(message)s",
+    format="%(module)s : %(message)s",
+    datefmt="%H:%M:%S.%f",
     level=logging.INFO,
+    handlers=[RichHandler()],
 )
 logging.getLogger("drain3").setLevel(logging.WARNING)
 
@@ -71,13 +75,13 @@ class Arguments:
             error_message = (
                 "No log files provided. Please specify at least one log file."
             )
-            logging.error(error_message)
+            logging.critical(error_message)
             sys.exit(-2)
         if self.tree_depth and self.tree_depth < 3:
             error_message = (
                 f"The tree depth is set to {self.tree_depth}. Minimum value is 3."
             )
-            logging.error(error_message)
+            logging.critical(error_message)
             sys.exit(-1)
 
 
@@ -92,13 +96,23 @@ def create_drain3_cfg(args: Arguments) -> TemplateMinerConfig:
     if args.cfg_file.exists():
         logging.info("Loading configuration from %s", args.cfg_file)
         drain3_cfg.load(args.cfg_file)
-    # Add masking instructions to the configuration
-    mask_ip = MaskingInstruction(
-        r"((?<=[^A-Za-z0-9])|^)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})((?=[^A-Za-z0-9])|$)",
-        "IP",
-    )
-    mask_time = MaskingInstruction(r"(\d{2}:\d{2}:\d{2}(.\d+|))", "TIME")
-    drain3_cfg.masking_instructions += [mask_ip, mask_time]
+    else:
+        logging.info(
+            "Configuration file %s not found. Using default configuration.",
+            args.cfg_file,
+        )
+        mask_time = MaskingInstruction(r"(\d{2}:\d{2}:\d{2}(.\d+|))", "TIME")
+        mask_ip = MaskingInstruction(
+            r"((?<=[^A-Za-z0-9])|^)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})((?=[^A-Za-z0-9])|$)",
+            "IP",
+        )
+        mask_hex = MaskingInstruction(
+            r"((?<=[^A-Za-z0-9])|^)(0[xX][0-9a-fA-F]+)((?=[^A-Za-z0-9])|$)",
+            "HEX",
+        )
+        # Add masking instructions to the configuration
+        drain3_cfg.masking_instructions += [mask_time, mask_ip, mask_hex]
+
     if args.similarity_threshold:
         drain3_cfg.drain_sim_th = args.similarity_threshold
     if args.tree_depth:
@@ -194,10 +208,16 @@ def main(args: Arguments) -> int:
     try:
         regex = re.compile(args.filter) if args.filter else None
     except re.error as e:
-        logging.error("Invalid regex pattern: %s. Error: %s", args.filter, e)
+        logging.critical("Invalid regex pattern: %s. Error: %s", args.filter, e)
         return -1
-
-    total_nb_lines = add_log_lines_to_miner(template_miner, args.logfile_paths, regex)
+    try :
+        total_nb_lines = add_log_lines_to_miner(template_miner, args.logfile_paths, regex)
+    except FileNotFoundError as e:
+        logging.critical("File not found: %s", e.filename)
+        return -1
+    except IOError as e:
+        logging.critical("I/O error(%s): %s", e.errno, e.strerror)
+        return -1
 
     if args.lex_order:
         handle_cluster_lex_order(template_miner)
@@ -205,9 +225,10 @@ def main(args: Arguments) -> int:
         total_nb_lines_clusters = handle_cluster_count_order(template_miner)
         # sanity check
         if total_nb_lines_clusters != total_nb_lines:
-            logging.warning(
+            logging.error(
                 "The number of lines in the clusters (%d) does "
-                "not match the total number of lines processed (%d).",
+                "not match the total number of lines processed (%d)."
+                "Maybe you should increase [DRAIN]/max_clusters parameter.",
                 total_nb_lines_clusters,
                 total_nb_lines,
             )
@@ -217,5 +238,9 @@ def main(args: Arguments) -> int:
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(Arguments)
-    sys.exit(main(cfg))
+    try:
+        cfg = tyro.cli(Arguments)
+        sys.exit(main(cfg))
+    except KeyboardInterrupt:
+        print("\n[red]Process interrupted by user[/red]")
+        sys.exit(-1)
