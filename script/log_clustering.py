@@ -150,6 +150,18 @@ def add_log_lines_to_miner(
     return total_nb_lines
 
 
+def surrogate_non_printable(s: str) -> str:
+    """
+    Surrogate non-printable characters from a string.
+
+    Args:
+        s (str): The input string.
+    Returns:
+        str: The cleaned string.
+    """
+    return s.encode("utf-8", errors="surrogateescape").decode("utf-8")
+
+
 def handle_cluster_lex_order(template_miner: TemplateMiner) -> None:
     """
     Display all clusters in lexicographical order.
@@ -162,7 +174,7 @@ def handle_cluster_lex_order(template_miner: TemplateMiner) -> None:
     ]
     ordered_clusters.sort()
     for cluster in ordered_clusters:
-        print(f"{cluster}")
+        print(f"{surrogate_non_printable(cluster)}")
 
 
 def handle_cluster_count_order(template_miner: TemplateMiner) -> int:
@@ -186,7 +198,8 @@ def handle_cluster_count_order(template_miner: TemplateMiner) -> int:
     margin = ceil(log10(ordered_clusters[0].size))
     total_nb_lines_clusters = 0
     for cluster in ordered_clusters:
-        print(f"{str(cluster.size).rjust(margin)} - {cluster.pattern}")
+        pattern = surrogate_non_printable(cluster.pattern)
+        print(f"{str(cluster.size).rjust(margin)} - {pattern}")
         total_nb_lines_clusters += cluster.size
     return total_nb_lines_clusters
 
@@ -210,8 +223,10 @@ def main(args: Arguments) -> int:
     except re.error as e:
         logging.critical("Invalid regex pattern: %s. Error: %s", args.filter, e)
         return -1
-    try :
-        total_nb_lines = add_log_lines_to_miner(template_miner, args.logfile_paths, regex)
+    try:
+        total_nb_lines = add_log_lines_to_miner(
+            template_miner, args.logfile_paths, regex
+        )
     except FileNotFoundError as e:
         logging.critical("File not found: %s", e.filename)
         return -1
