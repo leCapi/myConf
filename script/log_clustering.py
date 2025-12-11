@@ -19,6 +19,8 @@ from typing import Annotated
 import tyro
 from rich import print  # pylint: disable=redefined-builtin
 from rich.logging import RichHandler
+from rich.progress import track
+from rich.progress import Progress
 from drain3 import TemplateMiner  # type: ignore
 from drain3.masking import MaskingInstruction  # type: ignore
 from drain3.template_miner_config import TemplateMinerConfig  # type: ignore
@@ -137,16 +139,32 @@ def add_log_lines_to_miner(
         int: The number of lines added to the template miner.
     """
     total_nb_lines = 0
-    for logfile_path in logfile_paths:
-        with open(logfile_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                if regex and not regex.match(line):
-                    continue
-                total_nb_lines += 1
-                template_miner.add_log_message(line)
+    with Progress() as progress:
+        tasks = []
+        for logfile_path in logfile_paths:
+            number_of_lines = sum(
+                1
+                for _ in open(logfile_path, encoding="utf-8", errors="surrogateescape")
+            )
+            task_file = progress.add_task(
+                f"{pathlib.Path(logfile_path).name}", total=number_of_lines
+            )
+            tasks.append((logfile_path, task_file))
+        for task in tasks:
+            logfile_path = task[0]
+            task_file = task[1]
+            number_of_lines = sum(1 for _ in open(logfile_path))
+            with open(
+                logfile_path, "r", encoding="utf-8", errors="surrogateescape"
+            ) as f:
+                for line in f:
+                    progress.update(task_file, advance=1)
+                    if not line:
+                        continue
+                    if regex and not regex.match(line):
+                        continue
+                    total_nb_lines += 1
+                    template_miner.add_log_message(line)
     return total_nb_lines
 
 
