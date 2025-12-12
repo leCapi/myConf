@@ -38,6 +38,7 @@ logging.basicConfig(
 logging.getLogger("drain3").setLevel(logging.WARNING)
 
 HOME_CFG_FILE = pathlib.Path.home() / ".drain3.ini"
+KB_FACTOR = 1000
 
 
 @dataclasses.dataclass
@@ -135,6 +136,30 @@ def create_drain3_cfg(args: Arguments) -> TemplateMinerConfig:
     return drain3_cfg
 
 
+def estimate_lines(path: pathlib.Path, sample_lines: int = 1000) -> int:
+    """
+    Estimate total lines based on file size and sample average.
+    Args:
+        path (pathlib.Path): Path to the log file.
+        sample_lines (int): Number of lines to sample for average calculation.
+    """
+    file_size = path.stat().st_size
+    if file_size == 0:
+        return 0
+    # Sample first 'sample_lines' to get avg bytes per line
+    avg_bytes_per_line = 0
+    with open(path, "rb") as f:  # Use binary for accurate byte counting
+        for i, line in enumerate(f):
+            if i >= sample_lines:
+                break
+            avg_bytes_per_line += len(line)
+    if sample_lines > 0:
+        avg_bytes_per_line /= sample_lines
+    # Estimate total lines
+    estimated = int(file_size / avg_bytes_per_line) if avg_bytes_per_line > 0 else 0
+    return max(estimated, 1)
+
+
 def create_file_line_generators(
     logfile_paths: tuple[pathlib.Path, ...],
     progress: Progress,
@@ -151,9 +176,7 @@ def create_file_line_generators(
     """
     tasks_and_generators = []
     for logfile_path in logfile_paths:
-        number_of_lines = sum(
-            1 for _ in open(logfile_path, encoding="utf-8", errors="surrogateescape")
-        )
+        number_of_lines = estimate_lines(logfile_path, 10000)
         task_id = progress.add_task(
             f"{pathlib.Path(logfile_path).name}", total=number_of_lines
         )
@@ -225,22 +248,6 @@ def surrogate_non_printable(s: str) -> str:
     return s.encode("utf-8", errors="surrogateescape").decode("utf-8")
 
 
-def compute_margin_for_display(max_number: int) -> int:
-    """
-    Compute the margin for displaying numbers.
-
-    Args:
-        max_number (int): The maximum number to display.
-    Returns:
-        int: The computed margin.
-    """
-    b10 = log10(max_number)
-    margin = ceil(log10(max_number)) if b10 != int(b10) else b10 + 1
-    nb_full_block, rest = divmod(margin, 3)
-    margin += max(0, nb_full_block - 1 if rest == 0 else nb_full_block)
-    return margin
-
-
 def display_clusters(
     template_miner: TemplateMiner,
     size_counter: Counter,
@@ -286,7 +293,7 @@ def display_clusters(
         for cluster in clusters_data:
             pattern = surrogate_non_printable(cluster.template)
             count_str = f"{cluster.count:,}".replace(",", " ")
-            size_kb = cluster.char_size // 1000
+            size_kb = cluster.char_size // KB_FACTOR
             size_str = f"{size_kb:,}".replace(",", " ")
             print(f"{count_str} - {size_str} - {pattern}")
             total_nb_lines_clusters += cluster.count
@@ -302,7 +309,7 @@ def display_clusters(
         for cluster in clusters_data:
             pattern = surrogate_non_printable(cluster.template)
             count_str = f"{cluster.count:,}".replace(",", " ")
-            size_kb = cluster.char_size // 1000
+            size_kb = cluster.char_size // KB_FACTOR
             size_str = f"{size_kb:,}".replace(",", " ")
             table.add_row(count_str, size_str, pattern)
             total_nb_lines_clusters += cluster.count
