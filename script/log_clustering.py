@@ -7,6 +7,7 @@ It uses the drain3 library to extract templates from log lines.
 It can filter log lines based on a regex pattern and display the clusters.
 """
 import dataclasses
+import itertools
 import logging
 import pathlib
 import re
@@ -163,49 +164,53 @@ def estimate_lines(path: pathlib.Path, sample_lines: int = 1000) -> int:
 def create_file_line_generators(
     logfile_paths: tuple[pathlib.Path, ...],
     progress: Progress,
-) -> list[tuple[int, typing.Generator[str, None, None]]]:
+) -> typing.Generator[str, None, None]:
     """
-    Create progress tasks and line generators for each log file.
+    Create progress tasks for all files and return a chained generator yielding lines from all files.
 
     Args:
         logfile_paths (tuple[pathlib.Path, ...]): Paths to the log files.
         progress (Progress): The progress instance to track file processing.
 
     Returns:
-        list[tuple[int, Generator]]: List of (task_id, line_generator) tuples.
+        Generator: A single generator yielding lines from all files.
     """
-    tasks_and_generators = []
+    generators = []
     for logfile_path in logfile_paths:
-        number_of_lines = estimate_lines(logfile_path, 10000)
+        sample_nb_lines = 20000
+        number_of_lines = estimate_lines(logfile_path, sample_nb_lines)
         task_id = progress.add_task(
             f"{pathlib.Path(logfile_path).name}", total=number_of_lines
         )
 
         def line_generator(
-            path: pathlib.Path, tid: int
+            path: pathlib.Path, tid: int, nb_lines: int
         ) -> typing.Generator[str, None, None]:
             """Generator that yields lines from a file and updates progress."""
             with open(path, "r", encoding="utf-8", errors="surrogateescape") as f:
                 for line in f:
                     progress.update(tid, advance=1)
                     yield line
+            progress.update(tid, completed=nb_lines)
+            progress.stop_task(tid)
 
-        tasks_and_generators.append((task_id, line_generator(logfile_path, task_id)))
+        generators.append(line_generator(logfile_path, task_id, number_of_lines))
 
-    return tasks_and_generators
+    # Chain all generators into one
+    return itertools.chain(*generators)
 
 
 def add_log_lines_to_miner(
     template_miner: TemplateMiner,
-    line_generators: list[typing.Generator[str, None, None]],
+    line_generator: typing.Generator[str, None, None],
     regex: typing.Union[re.Pattern[str], None],
 ) -> tuple[int, Counter]:
     """
-    Add log lines from generators to the template miner.
+    Add log lines from a generator to the template miner.
 
     Args:
         template_miner (TemplateMiner): The template miner instance.
-        line_generators (list[Generator]): List of line generators.
+        line_generator (Generator): A generator yielding log lines.
         regex (re.Pattern | None): Regex pattern to filter log lines.
 
     Returns:
@@ -213,27 +218,25 @@ def add_log_lines_to_miner(
     """
     start_time = time.perf_counter()
     total_nb_lines = 0
-    total_cluster_sizes = Counter()
+    cluster_char_sizes = Counter()
 
-    for line_generator in line_generators:
-        for line in line_generator:
-            if not line:
-                continue
-            if regex and not regex.match(line):
-                continue
-            total_nb_lines += 1
-            result = template_miner.add_log_message(line)
-            total_cluster_sizes[result["cluster_id"]] += len(line)
+    for line in line_generator:
+        if not line:
+            continue
+        if regex and not regex.match(line):
+            continue
+        total_nb_lines += 1
+        result = template_miner.add_log_message(line)
+        cluster_char_sizes[result["cluster_id"]] += len(line)
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
     logging.info(
-        "Processed %d lines from %d files in %.2f seconds (%.2f lines/second).",
+        "Processed %d lines in %.2f seconds (%.2f lines/second).",
         total_nb_lines,
-        len(line_generators),
         elapsed_time,
         total_nb_lines / elapsed_time if elapsed_time > 0 else 0,
     )
-    return total_nb_lines, total_cluster_sizes
+    return total_nb_lines, cluster_char_sizes
 
 
 def surrogate_non_printable(s: str) -> str:
@@ -248,9 +251,23 @@ def surrogate_non_printable(s: str) -> str:
     return s.encode("utf-8", errors="surrogateescape").decode("utf-8")
 
 
+def compute_margin_for_display(max_number: int) -> int:
+    """
+    Compute the margin for displaying numbers.
+
+    Args:
+        max_number (int): The maximum number to display.
+    Returns:
+        int: The computed margin.
+    """
+    b10 = log10(max_number)
+    margin = ceil(log10(max_number)) if b10 != int(b10) else b10 + 1
+    return margin
+
+
 def display_clusters(
     template_miner: TemplateMiner,
-    size_counter: Counter,
+    cluster_char_sizes: Counter,
     order_by: str = "count",
     raw: bool = False,
 ) -> int:
@@ -259,7 +276,7 @@ def display_clusters(
 
     Args:
         template_miner (TemplateMiner): the template miner which has been filled with log lines.
-        size_counter (Counter): a counter of the total sizes of each cluster.
+        cluster_char_sizes (Counter): a counter of the total sizes of each cluster.
         order_by (str): How to order clusters: "count", "size", or "template". Defaults to "count".
 
     Returns:
@@ -269,7 +286,7 @@ def display_clusters(
     clusters_data = [
         ClusterResult(
             count=cluster.size,
-            char_size=size_counter[cluster.cluster_id],
+            char_size=cluster_char_sizes[cluster.cluster_id],
             template=cluster.get_template(),
         )
         for cluster in template_miner.drain.clusters
@@ -290,12 +307,21 @@ def display_clusters(
     total_nb_lines_clusters = 0
     if raw:
         # Plain text output for bash processing
+        count_margin = compute_margin_for_display(
+            max(cluster.count for cluster in clusters_data)
+        )
+        size_margin = compute_margin_for_display(
+            max(cluster.char_size for cluster in clusters_data) // KB_FACTOR
+        )
         for cluster in clusters_data:
             pattern = surrogate_non_printable(cluster.template)
-            count_str = f"{cluster.count:,}".replace(",", " ")
+            count_str = f"{cluster.count}"
             size_kb = cluster.char_size // KB_FACTOR
-            size_str = f"{size_kb:,}".replace(",", " ")
-            print(f"{count_str} - {size_str} - {pattern}")
+            size_str = f"{size_kb}"
+            console.print(
+                f"{count_str:>{count_margin}} - {size_str:>{size_margin}} - {pattern}",
+                soft_wrap=True,
+            )
             total_nb_lines_clusters += cluster.count
     else:
         # Create a Rich table
@@ -315,7 +341,7 @@ def display_clusters(
             total_nb_lines_clusters += cluster.count
 
         # Print the table
-        console.print(table)
+        console.print(table, markup=False)
 
     return total_nb_lines_clusters
 
@@ -330,7 +356,6 @@ def main(args: Arguments) -> int:
     Returns:
         int: 0 if everything went well
     """
-    result = 0
     drain3_cfg = create_drain3_cfg(args)
     template_miner = TemplateMiner(config=drain3_cfg)
     regex = None
@@ -339,6 +364,7 @@ def main(args: Arguments) -> int:
     except re.error as e:
         logging.critical("Invalid regex pattern: %s. Error: %s", args.filter, e)
         return -1
+    total_nb_lines, cluster_char_sizes = 0, None
     try:
         with Progress(
             TextColumn("[progress.description]{task.description}"),
@@ -346,14 +372,10 @@ def main(args: Arguments) -> int:
             TaskProgressColumn(),
             console=error_console,
         ) as progress:
-            tasks_and_generators = create_file_line_generators(
-                args.logfile_paths, progress
+            line_generator = create_file_line_generators(args.logfile_paths, progress)
+            total_nb_lines, cluster_char_sizes = add_log_lines_to_miner(
+                template_miner, line_generator, regex
             )
-            line_generators = [gen for _, gen in tasks_and_generators]
-            total_nb_lines, size_counter = add_log_lines_to_miner(
-                template_miner, line_generators, regex
-            )
-
     except FileNotFoundError as e:
         logging.critical("File not found: %s", e.filename)
         return -1
@@ -361,19 +383,20 @@ def main(args: Arguments) -> int:
         logging.critical("I/O error(%s): %s", e.errno, e.strerror)
         return -1
 
-    if args.lex_order:
+    def display_results() -> None:
+        order = "count"
+        if args.lex_order:
+            order = "template"
+        elif args.size_order:
+            order = "size"
         total_nb_lines_clusters = display_clusters(
-            template_miner, size_counter, order_by="template", raw=args.raw
+            template_miner, cluster_char_sizes, order_by=order, raw=args.raw
         )
-    elif args.size_order:
-        total_nb_lines_clusters = display_clusters(
-            template_miner, size_counter, order_by="size", raw=args.raw
-        )
-    else:
-        total_nb_lines_clusters = display_clusters(
-            template_miner, size_counter, order_by="count", raw=args.raw
-        )
-        # sanity check
+        return total_nb_lines_clusters
+
+    def sanity_check(total_nb_lines_clusters: int) -> None:
+        """Check if the total number of lines in clusters matches the processed lines."""
+        result = 0
         if total_nb_lines_clusters != total_nb_lines:
             logging.error(
                 "The number of lines in the clusters (%d) does "
@@ -383,8 +406,10 @@ def main(args: Arguments) -> int:
                 total_nb_lines,
             )
             result = 1
+        return result
 
-    return result
+    total_nb_lines_clusters = display_results()
+    return sanity_check(total_nb_lines_clusters)
 
 
 if __name__ == "__main__":
